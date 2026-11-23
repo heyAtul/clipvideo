@@ -1,0 +1,9 @@
+{
+  "layout": "reel",
+  "watermark": "~/StreamClips/brand/logo_watermark.png",
+  "watermark_opacity": 0.50,
+  "watermark_width": 0.17,
+  "watermark_y": 0.06,
+  "hashtags": 100,
+  "output_dir": "~/Desktop/Stream Clips Kit/Clips"
+}

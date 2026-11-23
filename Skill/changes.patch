@@ -1,0 +1,1288 @@
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/README.md stream-clips/README.md
+--- stream-clips/README.md	2026-11-17 11:48:44
++++ stream-clips/README.md	2026-11-23 20:05:46
+@@ -18,7 +18,8 @@
+   Google account) or **OpenCode**. The ChatGPT and Gemini *chat* apps can't run programs on your
+   computer, so use Codex or Gemini CLI.
+ - **ffmpeg** and **deno** (or Node.js):
+-  - macOS: `brew install ffmpeg deno`
++  - macOS: `brew install ffmpeg-full deno`, then `brew link --force ffmpeg-full`
++    (not the plain `ffmpeg` formula: it can't draw captions)
+   - Windows: `winget install Gyan.FFmpeg` and `winget install DenoLand.Deno`
+ - **Python 3.9 or newer** (Windows: `winget install Python.Python.3.12`)
+ - About 1 GB of free disk space
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/SKILL.md stream-clips/SKILL.md
+--- stream-clips/SKILL.md	2026-11-17 11:57:40
++++ stream-clips/SKILL.md	2026-11-24 00:54:26
+@@ -7,6 +7,8 @@
+ 
+ Long streams in, vertical clips out. **You run everything; the user only gives a topic or links.**
+ 
++**This user's standing instructions:** before making or changing clips, read `~/Desktop/Stream Clips Kit/VIDEO-INSTRUCTIONS.md` and follow every rule in it. When the user gives a new instruction about the videos, add it to that file: their words, the date, and the setting that does it. Mark replaced instructions as replaced; never delete them.
++
+ `SKILL_DIR` = the folder this file is in. Every command is:
+ 
+ - macOS / Linux: `python3 "SKILL_DIR/scripts/streamclips.py" <command> ...`
+@@ -14,13 +16,14 @@
+ 
+ Below, `streamclips` is short for that.
+ 
+-Clips are saved in `~/StreamClips/<date>/<topic>/<creator>__<title>/` (Windows: `C:\Users\<name>\StreamClips\...`).
++Clips are saved in `<output>/<date>/<topic>/<creator>__<title>/`. `<output>` is the `output_dir` setting if it is set (check `~/StreamClips/settings.json`), otherwise `~/StreamClips` (Windows: `C:\Users\<name>\StreamClips`). After every run, `<output>/CLIPS.md` is rebuilt: it lists every clip by date, newest first. The cache, settings.json and the watchlist always stay in `~/StreamClips`.
+ 
+ ## 0. First time on a computer
+ 
+-1. Run `streamclips setup` and wait for **READY**. It checks for ffmpeg, a JavaScript runtime (deno or node; YouTube downloads need one) and disk space. It then builds a private Python environment in `~/.streamclips`, installs Whisper, OpenCV, Pillow and yt-dlp, and downloads two Whisper models (~220 MB) and a face model (0.2 MB).
++1. Run `streamclips setup` and wait for **READY**. It checks for ffmpeg (and that it can draw captions), a JavaScript runtime (deno or node; YouTube downloads need one) and disk space. It then builds a private Python environment in `~/.streamclips`, installs Whisper, OpenCV, Pillow and yt-dlp, and downloads two Whisper models (~220 MB) and a face model (0.2 MB).
+ 2. If something is MISSING, install it the official way, then open a new terminal and run setup again. Ask the user before anything that needs an admin password.
+-   - macOS: `brew install ffmpeg deno`
++   - macOS: `brew install ffmpeg-full deno`, then `brew link --force ffmpeg-full` (Homebrew doesn't put it on the PATH by itself).
++     Don't use the plain `ffmpeg` formula: it's built without libass, so every clip fails at the caption step. If plain `ffmpeg` is already installed, run `brew unlink ffmpeg` before linking. Don't `brew uninstall` it: Homebrew then also removes other packages it thinks are unused.
+    - Windows: `winget install Gyan.FFmpeg` and `winget install DenoLand.Deno`
+ 3. `streamclips doctor` checks the install at any time.
+ 
+@@ -40,9 +43,11 @@
+      - **stack**: facecam on top, gameplay below (a small face in a corner)
+      - **crop**: follows the face (podcast, just chatting, IRL)
+      - **blur**: the whole frame over a blurred copy of itself (no face)
+-   - The title bar is added and the audio is levelled to -14 LUFS.
++     - **reel** (with `--layout reel`, or `"layout": "reel"` in settings.json; this user has it as the default since 2026-11-24, and `--layout auto` gives the stacked look for one run): the whole 16:9 gameplay, never cropped, in the middle of a branded frame. The top has the mascot, "LET'S GO!" and the facecam in a glowing frame; the bottom has brush strokes, claw marks and a faint mascot. Captions go just under the gameplay. The subscribe banner (play button, SUBSCRIBE, bell) appears only with `"reel_subscribe": true`. Leave it off unless the user asks for it. This look has no title bar and no watermark. Its art is separate PNG layers in `~/StreamClips/brand/reel/`, generated from the `reel_*` settings; a layer edited by hand is kept, and deleting one regenerates it. The code is in `scripts/sc/reel.py`.
++   - The title bar is added (not in the reel look) and the audio is levelled to -14 LUFS.
+ 5. **Files written:**
+-   - `POSTING.md`: the caption and hashtags to paste, why each clip should work, and where it is in the stream
++   - `<clip>.txt` next to each video: the text to paste and nothing else. It holds one description written for a worldwide audience, a credit line with the creator's social media @handles, then `hashtags` hashtags (default 30), most important first, separated by blank lines. The handles come from the stream's metadata (the platform's own handle) and the social links in its description; `creator_socials` in settings adds or corrects them, and `credit_creator: false` drops the line. The same text is used on every platform. Platform caps to tell the user about: Instagram 5 (more blocks the post), YouTube 60 (more and all of them are ignored), TikTok none (captions up to 4,000 characters). Every tag must relate to the clip, since misleading hashtags can get a video removed. The brain writes it from the clip's transcript, with one call per clip, cached. With `--brain agent`, or if that call fails, it falls back to the picker's short caption and hashtags.
++   - `POSTING.md`: every clip's description, why each clip should work, and where it is in the stream
+    - `clips.json`
+    - `checks/<clip>.jpg`: 3 frames from each clip, for a quick look
+ 
+@@ -126,9 +131,11 @@
+ 
+ Before you report back, look at `checks/*.jpg` for each clip if you can view images. Otherwise, extract a frame with ffmpeg. Confirm:
+ 
+-- the face is visible in the top panel (stack look)
+-- the title is readable and names the right person
++- the face is visible in the top panel (stack look) or in the facecam frame (reel look)
++- the title is readable and names the right person (stack look; the reel look has no title bar)
++- reel look: the whole gameplay is in the middle band, with nothing cropped
+ - the captions are inside the frame
++- if a watermark is set: it is visible, and it doesn't cover the title, the captions or the face
+ 
+ If a facecam crop is wrong, re-run with `--cam x,y,w,h` (fractions of the 16:9 frame; e.g. a top-right cam ≈ `0.72,0.0,0.28,0.3`). Tell the user which clips look strongest, using the scores and the `why` lines.
+ 
+@@ -140,9 +147,15 @@
+ 
+ Settings live in `~/StreamClips/settings.json`, using any key from `scripts/sc/settings.py`, for example `{"cap_active": "00E5FF", "cam_share": 0.45, "clips": 4}`.
+ 
++**Watermark (the user's logo on every clip).** Set `"watermark": "<path to a PNG>"` in settings.json. The logo is drawn under the title and captions, centred across the frame and centred in the free space between the title bar and the captions. It can't be cropped off without cutting into the clip, and it never covers the title or captions. Tune it with `watermark_opacity` (default 0.30), `watermark_width` (share of the frame width, default 0.36; it shrinks to fit) and `watermark_y` (the centre as a share of the height, to place it yourself).
++
++- The PNG needs a transparent background. If the user's logo sits on a solid colour (a JPG on black, for example), cut the background out first, or it shows as a faint box.
++- To add the watermark to clips that were already made, run the same `clip` command again. The picks are cached, so only the clips are made again.
++
+ ## 6. Problems
+ 
+ - **"YouTube needs a login" / "not a bot" / Kick 403 / sub-only VOD** → add `--cookies chrome` (or the browser the user is signed into).
++- **Every clip fails with `No option name near '….ass'`**, or setup says ffmpeg **can't draw captions** → that ffmpeg has no libass. macOS: `brew install ffmpeg-full`, `brew unlink ffmpeg`, `brew link --force ffmpeg-full`. Then run the same command again: the picks are cached, so only the clips are made again.
+ - **"weak sound match"** on a clip → it may be ~1 s off. Check that clip, or `--repick`.
+ - **The picker CLI fails inside another agent's sandbox** (common in Codex) → `--brain agent`.
+ - **"nothing strong enough"** → a low-energy stream. Try another stream, a `--focus`, or `"min_score": 25` in settings.json.
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/cli.py stream-clips/scripts/sc/cli.py
+--- stream-clips/scripts/sc/cli.py	2026-11-17 11:57:40
++++ stream-clips/scripts/sc/cli.py	2026-11-24 00:13:18
+@@ -6,7 +6,7 @@
+ from concurrent.futures import ThreadPoolExecutor
+ 
+ from . import brains, discover, pipeline, settings
+-from .common import DATA, MODELS, Problem, keywords_for, need, say
++from .common import DATA, MODELS, Problem, keywords_for, need, run, say
+ 
+ AGENT_EXIT = 3
+ 
+@@ -44,7 +44,7 @@
+     c.add_argument("--section", help='only part of the stream, "1:00:00-2:30:00"')
+     c.add_argument("--new-only", action="store_true",
+                    help="only the part after the previous run (for live streams)")
+-    c.add_argument("--layout", choices=["auto", "stack", "crop", "blur"])
++    c.add_argument("--layout", choices=["auto", "stack", "crop", "blur", "reel"])
+     c.add_argument("--cam", help="facecam box as fractions x,y,w,h (e.g. 0.75,0.0,0.25,0.3)")
+     c.add_argument("--min", dest="min_len", type=int, help="shortest clip, seconds")
+     c.add_argument("--max", dest="max_len", type=int, help="longest clip, seconds")
+@@ -64,7 +64,13 @@
+         found = shutil.which(tool)
+         print(f"  {'ok ' if found else 'MISSING'} {tool}")
+         ok &= bool(found)
+-    js = shutil.which("deno") or shutil.which("node")
++    if shutil.which("ffmpeg"):
++        filters = run(["ffmpeg", "-hide_banner", "-filters"], timeout=30, quiet_fail=True) or ""
++        captions = any(line.split()[1:2] == ["ass"] for line in filters.splitlines())
++        print(f"  {'ok ' if captions else 'MISSING'} ffmpeg caption support (libass)"
++              + ("" if captions else ": on macOS install ffmpeg-full, see SKILL.md"))
++        ok &= captions
++    js =shutil.which("deno") or shutil.which("node")
+     print(f"  {'ok ' if js else 'MISSING'} JavaScript runtime (deno/node) for YouTube")
+     for b in brains.ORDER:
+         print(f"  {'ok ' if shutil.which(b) else ' - '} {b} CLI")
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/describe.py stream-clips/scripts/sc/describe.py
+--- stream-clips/scripts/sc/describe.py	1970-01-01 05:30:00
++++ stream-clips/scripts/sc/describe.py	2026-11-24 00:39:35
+@@ -0,0 +1,208 @@
++"""Post text for each clip: one description written for a worldwide audience, a credit line with
++the creator's social media @handles, then hashtags (most important first). Saved as <clip>.txt
++next to the video, ready to paste."""
++
++import json
++import re
++
++from . import brains
++from .common import Problem, read_json, say, write_json
++
++PROMPT = """You write the post text for a short vertical video clip (Instagram Reels, TikTok, \
++YouTube Shorts). The audience is worldwide: many viewers speak English as a second language and \
++have never heard of the creator.
++
++Clip title: "<<TITLE>>"
++Moment type: <<TYPE>>
++From: "<<VIDEO>>" by <<CREATOR>>, streamed on <<SOURCE>>
++Topic: <<TOPIC>>
++Why it should work: <<WHY>>
++What is said in the clip (automatic transcript, may contain mistakes):
++<<TRANSCRIPT>>
++
++Write two things.
++
++description: 2-4 short lines in simple, clear English that anyone in the world understands. No \
++slang, no in-jokes, no local references. Line 1 is a hook that makes a stranger stop scrolling. \
++Say who the creator is in a few words. End with a question anyone, in any country, can answer in \
++the comments. Use 1-3 emojis. No hashtags in the description. At most 400 characters.
++
++hashtags: exactly <<N>> different hashtags, ordered from most to least important. Start with \
++the ones about this exact clip (what happens, what is found, the type of moment), then the game \
++or subject and the creator, then the wider community around them, then broad discovery tags used \
++worldwide, and popular tags in other big languages (Spanish, Portuguese, Hindi in Latin letters, \
++Arabic, Indonesian...). Every tag must still relate to this clip: no unrelated trending tags, \
++because platforms remove videos for misleading hashtags. The same list is used on every platform, so no platform tags (#reels, #shorts, #tiktok, \
++#fyp) and no streaming site other than <<SOURCE>>. No spam tags (#followforfollow, #like4like, \
++#f4f). No spaces inside a tag.
++
++Reply with only a JSON object, no prose, no markdown fence:
++{"description": "...", "hashtags": ["#...", "#..."]}
++"""
++
++MAX_CHARS = 4000   # TikTok's caption limit, the longest of the short-video apps
++
++
++def _fill(**values):
++    text = PROMPT
++    for key, value in values.items():
++        text = text.replace(f"<<{key}>>", str(value))
++    return text
++
++
++def _parse(raw):
++    text = (raw or "").strip()
++    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
++    if fenced:
++        text = fenced.group(1).strip()
++    a, b = text.find("{"), text.rfind("}")
++    if a < 0 or b <= a:
++        return None
++    try:
++        data = json.loads(text[a:b + 1])
++    except ValueError:
++        return None
++    return data if isinstance(data, dict) else None
++
++
++def extra(want):
++    """Spare tags to ask for, so the lists stay full after filtering out duplicates and
++    platform tags."""
++    return max(5, want // 10)
++
++# Platform tags look wrong when one list goes on every platform.
++PLATFORM_TAG = re.compile(r"^(reels?|shorts?|youtubeshorts|tiktok\w*|fyp\w*|foryou\w*|"
++                          r"explore\w*|insta\w*|reelsinstagram|instareels)$")
++SITES = {"YouTube": re.compile(r"youtube|^yt"), "Twitch": re.compile(r"twitch"),
++         "Kick": re.compile(r"^kick(stream|clips|live|com)")}
++
++
++def source_of(url):
++    url = str(url or "").lower()
++    return next((name for key, name in (("youtu", "YouTube"), ("twitch", "Twitch"), ("kick", "Kick"))
++                 if key in url), "a streaming site")
++
++
++def tags(raw, limit, source=None):
++    """Clean hashtags: letters, digits and _ in any script; no duplicates; no platform tags and
++    no streaming site other than `source`; at most `limit`."""
++    out, seen = [], set()
++    for t in raw or []:
++        t = re.sub(r"\W", "", str(t))
++        low = t.lower()
++        if not t or low in seen or PLATFORM_TAG.match(low):
++            continue
++        if any(rx.search(low) for name, rx in SITES.items() if name != source):
++            continue
++        seen.add(low)
++        out.append("#" + t)
++    return out[:limit]
++
++
++def generate(pick, words, ctx, cfg, cache):
++    """{"description", "hashtags"} for one clip: written by the brain, cached in `cache`.
++    Falls back to the picker's short caption and hashtags if the brain can't be used."""
++    want = int(cfg["hashtags"])
++    video = ctx.get("video") or {}
++    source = source_of(video.get("url"))
++    key = {"title": pick.get("title"), "start": pick.get("start"), "want": want}
++    cached = read_json(cache) or {}
++    if cached.get("key") == key and cached.get("description"):
++        cached["hashtags"] = tags(cached.get("hashtags"), want, source)
++        return cached
++    fallback = {"key": key, "description": str(pick.get("caption") or "").strip(),
++                "hashtags": tags(pick.get("hashtags"), want, source)}
++    brain = ctx.get("brain")
++    if not brain or brain == "agent":
++        return fallback
++    prompt = _fill(TITLE=pick.get("title") or "", TYPE=pick.get("type") or "moment", SOURCE=source,
++                   VIDEO=video.get("title") or "", CREATOR=video.get("name") or "the creator",
++                   TOPIC=video.get("topic") or "", WHY=pick.get("why") or "",
++                   TRANSCRIPT=" ".join(w["w"] for w in words)[:1500] or "(no speech)",
++                   N=want + extra(want))
++    try:
++        data = _parse(brains.ask(brain, prompt, ctx.get("model"), cache.parent))
++    except Problem as exc:
++        say(f"  description: {str(exc)[:120]}; using the short caption instead", "warn")
++        return fallback
++    if not data or not str(data.get("description") or "").strip():
++        say("  description: no usable answer; using the short caption instead", "warn")
++        return fallback
++    out = {"key": key, "description": str(data["description"]).strip(),
++           "hashtags": tags(data.get("hashtags"), want, source) or fallback["hashtags"]}
++    write_json(cache, out)
++    return out
++
++
++# Social links the creator lists in the stream's description: (platform, pattern, not a handle)
++SOCIAL_LINKS = (
++    ("Instagram", r"instagram\.com/([A-Za-z0-9_.]+)",
++     {"p", "reel", "reels", "stories", "explore", "accounts", "tv", "share"}),
++    ("TikTok", r"tiktok\.com/@([A-Za-z0-9_.]+)", set()),
++    ("X", r"(?:twitter|x)\.com/([A-Za-z0-9_]+)", {"intent", "i", "home", "share", "hashtag", "search"}),
++    ("Twitch", r"twitch\.tv/([A-Za-z0-9_]+)", {"videos", "directory", "p", "subs"}),
++    ("Kick", r"kick\.com/([A-Za-z0-9_]+)", {"video", "videos", "categories"}),
++    ("Threads", r"threads\.net/@([A-Za-z0-9_.]+)", set()),
++    ("YouTube", r"youtube\.com/@([A-Za-z0-9_.-]+)", set()),
++)
++ORDER = ("YouTube", "Instagram", "TikTok", "X", "Twitch", "Kick", "Threads")
++
++
++def socials(meta, cfg):
++    """The creator's social media @handles, as [[platform, "@handle"], ...]. The platform the
++    stream is on comes from its metadata; the others from links in the stream's description
++    (the first one per platform, so secondary channels further down are skipped). Settings
++    "creator_socials" adds or corrects handles: {"<creator name>": {"TikTok": "@name"}}, and
++    an empty value removes one."""
++    found = {}
++    url = str(meta.get("webpage_url") or "").lower()
++    uid = str(meta.get("uploader_id") or "")
++    if "youtu" in url and uid.startswith("@"):
++        found["YouTube"] = uid
++    elif "twitch.tv" in url and uid:
++        found["Twitch"] = "@" + uid.lstrip("@")
++    elif "kick.com" in url:
++        m = re.search(r"kick\.com/([a-z0-9_]+)", url)
++        if m and m.group(1) not in ("video", "videos"):
++            found["Kick"] = "@" + m.group(1)
++    text = str(meta.get("description") or "")
++    for platform, pattern, skip in SOCIAL_LINKS:
++        if platform in found:
++            continue
++        for m in re.finditer(pattern, text, re.I):
++            handle = m.group(1).rstrip(".")
++            if handle and handle.lower() not in skip:
++                found[platform] = "@" + handle
++                break
++    name = str(meta.get("name") or meta.get("channel") or meta.get("uploader") or "").lower()
++    for platform, handle in ((cfg.get("creator_socials") or {}).get(name) or {}).items():
++        if handle:
++            found[platform] = "@" + str(handle).lstrip("@")
++        else:
++            found.pop(platform, None)
++    return [[p, found[p]] for p in ORDER if p in found] + \
++           [[p, h] for p, h in found.items() if p not in ORDER]
++
++
++def credit(video, cfg):
++    """One line crediting the creator, with their @handles. Empty when there are none or
++    "credit_creator" is off."""
++    handles = (video or {}).get("socials") or []
++    if not cfg.get("credit_creator", True) or not handles:
++        return ""
++    return f"🎥 Credit: {video.get('name') or 'the creator'} · " + " · ".join(
++        f"{platform} {handle}" for platform, handle in handles)
++
++
++def write(path, record, cfg, video=None):
++    """Write <clip>.txt: the description, the credit line with the creator's @handles, then
++    the hashtags (most important first), separated by blank lines. Nothing else, so the
++    whole file can be pasted as is. Returns the text."""
++    head = "\n\n".join(part for part in (record["description"], credit(video, cfg)) if part)
++    chosen = record["hashtags_all"][:int(cfg["hashtags"])]
++    body = (head + "\n\n" + " ".join(chosen)).strip()
++    while len(body) > MAX_CHARS and chosen:
++        chosen = chosen[:-1]
++        body = (head + "\n\n" + " ".join(chosen)).strip()
++    path.write_text(body + "\n", encoding="utf-8")
++    return body
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/frame.py stream-clips/scripts/sc/frame.py
+--- stream-clips/scripts/sc/frame.py	2026-11-17 11:54:46
++++ stream-clips/scripts/sc/frame.py	2026-11-24 00:13:03
+@@ -255,6 +255,42 @@
+     return blur_graph(cfg, info), "blur", None
+ 
+ 
++def find_cam(part, start, length, info, cfg, memory, forced_cam=None):
++    """The facecam box in source pixels for the reel look, or None if there is none.
++    Same detection as the stack look; a big face on screen (just chatting) gives a box
++    around that face."""
++    sw, sh = info["width"], info["height"]
++    if forced_cam:
++        x, y, w, h = forced_cam
++        return (x * sw, y * sh, w * sw, h * sh) if max(forced_cam) <= 1.0 else tuple(forced_cam)
++    frames, scale = sample(part, start, length, info)
++    found = tracks(faces(frames), frames)
++    live = [t for t in found if t["alive"] and t["presence"] >= 0.3]
++    mem = memory.get("cam")
++    small = [t for t in live if t["size"] < cfg["big_face"]]
++    if small:
++        box, how = cam_box(frames, small[0]["box"])
++        cam = tuple(v * scale for v in box)
++        if how == "face size" and mem and _inside(small[0]["box"], mem, scale):
++            cam, how = tuple(mem), "this stream's other clips"
++        elif how == "overlay edges":
++            memory["cam"] = list(cam)
++        say(f"  look: reel, facecam {int(cam[2])}x{int(cam[3])} at {int(cam[0])},{int(cam[1])} "
++            f"(found by {how})")
++        return cam
++    if mem and any(_inside(t["box"], mem, scale) for t in found):
++        say("  look: reel, facecam where it was in this stream's other clips")
++        return tuple(mem)
++    big = [t for t in live if t["size"] >= cfg["big_face"]]
++    if big:
++        x, y, w, h = (v * scale for v in big[0]["box"])
++        side = max(w, h) * 2.2
++        say("  look: reel, facecam frame shows the big face on screen")
++        return (x + w / 2 - side * 0.6, y + h / 2 - side * 0.45, side * 1.2, side * 0.9)
++    say("  look: reel, no facecam found (the frame shows the mascot)")
++    return None
++
++
+ def _inside(face_box, cam, scale):
+     x, y, w, h = face_box
+     cx, cy = (x + w / 2) * scale, (y + h / 2) * scale
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/media.py stream-clips/scripts/sc/media.py
+--- stream-clips/scripts/sc/media.py	2026-11-17 11:42:48
++++ stream-clips/scripts/sc/media.py	2026-11-24 00:39:49
+@@ -9,7 +9,8 @@
+ 
+ META_KEYS = ("id", "title", "channel", "uploader", "duration", "view_count", "live_status",
+              "is_live", "was_live", "webpage_url", "extractor_key", "timestamp",
+-             "release_timestamp", "upload_date")
++             "release_timestamp", "upload_date",
++             "uploader_id", "uploader_url", "channel_url", "description")   # for the @handles
+ 
+ 
+ def ytdlp_args(url, cookies=None):
+@@ -49,7 +50,8 @@
+     cached = work / "meta.json"
+     meta = read_json(cached)
+     stale = meta and meta.get("live_status") == "is_live" and time.time() - meta.get("_at", 0) > 300
+-    if meta and not refresh and not stale:
++    old = meta and "uploader_id" not in meta          # saved before @handles were collected
++    if meta and not refresh and not stale and not old:
+         return meta
+     import json
+     try:
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/pipeline.py stream-clips/scripts/sc/pipeline.py
+--- stream-clips/scripts/sc/pipeline.py	2026-11-17 11:54:46
++++ stream-clips/scripts/sc/pipeline.py	2026-11-24 00:39:53
+@@ -2,11 +2,16 @@
+ 
+ import datetime
+ import hashlib
++import os
++import threading
++from pathlib import Path
+ 
+-from . import highlights, listen, media, produce
+-from .common import CACHE, DATA, Stopwatch, clock, human, parse_clock, probe, read_json, say, slug, tag, write_json
++from . import describe, highlights, listen, media, produce
++from .common import CACHE, Stopwatch, clock, human, parse_clock, probe, read_json, say, slug, tag, write_json
+ 
++_index_lock = threading.Lock()
+ 
++
+ def work_dir(url):
+     key = hashlib.sha1(url.strip().encode()).hexdigest()[:10]
+     tail = slug(url.split("://")[-1], 40)
+@@ -53,17 +58,20 @@
+         chat = listen.chat_speed(url, args, work, meta, cfg)
+ 
+     video = {"title": meta["title"], "name": meta["name"], "url": url,
+-             "topic": opts.topic or "this video", "focus": opts.focus}
++             "topic": opts.topic or "this video", "focus": opts.focus,
++             "socials": describe.socials(meta, cfg)}
+     with watch.lap("pick"):
+         picks = highlights.pick(heard, spike_db, chat, lo, hi, work, cfg, video,
+                                 opts.brain_resolved, opts.model, redo=opts.repick)
+ 
+     day = datetime.date.today().isoformat()
+-    outdir = (DATA / day / slug(opts.topic or "clips", 30)
++    root = Path(cfg["output_dir"])
++    outdir = (root / day / slug(opts.topic or "clips", 30)
+               / f"{slug(meta['name'], 24)}__{slug(meta['title'], 40)}")
+     memory = read_json(work / "cam.json", {}) or {}
+     ctx = {"url": url, "args": args, "audio": audio, "work": work, "outdir": outdir,
+-           "language": cfg["language"], "fast": opts.fast, "cam": opts.cam_box}
++           "language": cfg["language"], "fast": opts.fast, "cam": opts.cam_box,
++           "video": video, "brain": opts.brain_resolved, "model": opts.model}
+     made = []
+     with watch.lap("make clips"):
+         for i, pick in enumerate(picks, 1):
+@@ -77,6 +85,7 @@
+                + ", ".join(f"{k} {human(v)}" for k, v in watch.parts.items()) + ")")
+     if made:
+         posting_sheet(outdir, video, made, summary, lo, hi)
++        write_index(root)
+         write_json(work / "progress.json", {"done_until": hi, "at": datetime.datetime.now().isoformat()})
+         if not opts.keep_audio and not live:
+             audio.unlink(missing_ok=True)
+@@ -98,8 +107,53 @@
+                   f"**{c['title'] or ''}**  ",
+                   f"{c['type']} · {c['seconds']:.0f}s · score {c['score']} · from {clock(c['start'])} "
+                   f"· look: {c['look']}", "",
+-                  "Caption to paste:", "", "```", (c.get("caption") or "") + "\n"
+-                  + " ".join(c.get("hashtags") or []), "```", "",
+-                  f"_Why it should work: {c.get('why') or ''}_", "", "---", ""]
++                  "Description to paste:", "", "```",
++                  c["post"] if isinstance(c.get("post"), str)
++                  else (c.get("caption") or "") + "\n" + " ".join(c.get("hashtags") or []), "```", ""]
++        if c.get("post_text"):
++            lines += [f"The same text is in [{c['post_text']}]({c['post_text']}), next to the video.", ""]
++        lines += [f"_Why it should work: {c.get('why') or ''}_", "", "---", ""]
+     (outdir / "POSTING.md").write_text("\n".join(lines), encoding="utf-8")
+     write_json(outdir / "clips.json", {"source": video, "covered": [lo, hi], "clips": clips})
++
++
++def write_index(root):
++    """CLIPS.md in the output folder: every clip made so far, by date, newest first.
++    Rebuilt from each stream folder's clips.json, so it stays right if folders are deleted."""
++    root = Path(root)
++
++    def cell(text):
++        return str(text or "").replace("|", "\\|").replace("\n", " ")
++
++    with _index_lock:
++        days = {}
++        for sheet in sorted(root.glob("*/*/*/clips.json")):
++            data = read_json(sheet)
++            if not isinstance(data, dict) or not data.get("clips"):
++                continue
++            days.setdefault(sheet.parts[-4], []).append((sheet.parent, data))
++        total = sum(len(d["clips"]) for streams in days.values() for _, d in streams)
++        lines = ["# Clips", "",
++                 f"{total} clip(s) from {sum(len(s) for s in days.values())} stream(s), newest first. "
++                 "This file is rebuilt after every run. Each clip has a description file next to "
++                 "it (the .txt): the description and hashtags, ready to paste.", ""]
++        for day in sorted(days, reverse=True):
++            lines += [f"## {day}", ""]
++            for folder, data in days[day]:
++                src = data.get("source") or {}
++                rel = folder.relative_to(root).as_posix()
++                lines += [f"### {cell(src.get('name'))}: {cell(src.get('title'))}", "",
++                          f"Topic: {cell(src.get('topic'))} · [source video]({src.get('url', '')}) · "
++                          f"[POSTING.md]({rel}/POSTING.md)", "",
++                          "| Clip | Description | Title | Type | Length | Score | From |",
++                          "|---|---|---|---|---|---|---|"]
++                for c in data["clips"]:
++                    desc = f"[{cell(c['post_text'])}]({rel}/{c['post_text']})" if c.get("post_text") else ""
++                    lines.append(f"| [{cell(c.get('file'))}]({rel}/{c.get('file')}) | {desc} "
++                                 f"| {cell(c.get('title'))} | {cell(c.get('type'))} "
++                                 f"| {c.get('seconds', 0):.0f}s | {c.get('score', '')} "
++                                 f"| {clock(c.get('start', 0))} |")
++                lines.append("")
++        tmp = root / "CLIPS.md.tmp"
++        tmp.write_text("\n".join(lines), encoding="utf-8")
++        os.replace(tmp, root / "CLIPS.md")
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/produce.py stream-clips/scripts/sc/produce.py
+--- stream-clips/scripts/sc/produce.py	2026-11-17 11:48:58
++++ stream-clips/scripts/sc/produce.py	2026-11-24 00:39:49
+@@ -6,8 +6,8 @@
+ 
+ import numpy as np
+ 
+-from . import frame, listen, media, subs, titlecard
+-from .common import Problem, decode, probe, run, say, slug
++from . import describe, frame, listen, media, reel, subs, titlecard
++from .common import Problem, decode, even, probe, run, say, slug
+ 
+ PAD = 5.0          # extra seconds fetched on each side; trimmed after syncing
+ ENV_RATE = 100     # envelope samples per second used for syncing
+@@ -82,6 +82,31 @@
+     return dest
+ 
+ 
++def watermark_box(cfg, title_box, seam):
++    """Where the watermark goes: centred across, in the free space between the title bar (or
++    the facecam seam) and the captions. There it can't be cropped off without cutting into the
++    clip, and it never sits on the title or the captions. Returns (width, height, x, y)."""
++    from PIL import Image
++    W, H = cfg["width"], cfg["height"]
++    with Image.open(cfg["watermark"]) as im:
++        ratio = im.height / im.width
++    w = cfg["watermark_width"] * W
++    if cfg["watermark_y"] is not None:
++        cy = cfg["watermark_y"] * H
++    else:
++        top = title_box[1] if title_box else (seam or 0)
++        bottom = cfg["cap_y"] * H - 0.75 * cfg["cap_size"]     # top of the caption line
++        room = bottom - top - 2 * 24                           # keep a small gap on both sides
++        if room >= 200:
++            w = min(w, room / ratio)
++            cy = (top + bottom) / 2
++        else:
++            cy = H / 2
++    w = even(w)
++    h = even(w * ratio)
++    return w, h, (W - w) // 2, max(0, int(cy - h / 2))
++
++
+ def make(index, pick, ctx, cfg, memory):
+     """ctx: url, args, audio, work, outdir, language, fast, cam. Returns the clip record."""
+     start, end = pick["start"], pick["end"]
+@@ -105,22 +130,43 @@
+ 
+     words, _ = listen.transcribe(cfg["caption_model"], decode(part, 16000, offset, length),
+                                  ctx["language"])
+-    ass = subs.write(words, length, clips_dir / f"{name}.ass", cfg)
+-    graph, look, seam = frame.plan(part, offset, length, info, cfg, memory, ctx.get("cam"))
++    is_reel = cfg["layout"] == "reel"
++    ass = subs.write(words, length, clips_dir / f"{name}.ass", reel.caption_cfg(cfg) if is_reel else cfg)
+ 
+     inputs = ["-ss", f"{offset:.3f}", "-t", f"{length:.3f}", "-i", str(part)]
+-    chain = f"{graph};[framed]ass={ass.name}[subbed]"
+-    out_label = "subbed"
+-    title = pick.get("title")
+-    if title:
++    if is_reel:     # the branded template: no title bar and no watermark, the art is the brand
++        cam = frame.find_cam(part, offset, length, info, cfg, memory, ctx.get("cam"))
++        graph, extra = reel.graph(cfg, info, cam, length, min(60.0, info["fps"]), 1, reel.assets(cfg))
++        inputs += extra
++        look, seam = "reel", None
++    else:
++        graph, look, seam = frame.plan(part, offset, length, info, cfg, memory, ctx.get("cam"))
++    title, title_png, title_box = pick.get("title"), None, None
++    if title and not is_reel:
+         try:
+-            png, _, th = titlecard.render(title, cfg, clips_dir / f"{name}.title.png")
+-            y = int(seam - th / 2) if seam else int(cfg["height"] * cfg["title_top"])
+-            inputs += ["-i", str(png)]
+-            chain += f";[subbed][1:v]overlay=(W-w)/2:{max(0, y)}[titled]"
+-            out_label = "titled"
++            title_png, _, th = titlecard.render(title, cfg, clips_dir / f"{name}.title.png")
++            ty = max(0, int(seam - th / 2) if seam else int(cfg["height"] * cfg["title_top"]))
++            title_box = (ty, ty + th)
+         except (OSError, ValueError) as exc:
+             say(f"  title bar skipped ({exc})", "warn")
++
++    # Layers, bottom to top: the framed video, the watermark, the captions, the title bar.
++    chain, base = graph, "framed"
++    if cfg["watermark"] and not is_reel:
++        mw, mh, mx, my = watermark_box(cfg, title_box, seam)
++        inputs += ["-i", cfg["watermark"]]
++        idx = inputs.count("-i") - 1
++        chain += (f";[{idx}:v]scale={mw}:{mh},format=rgba,"
++                  f"colorchannelmixer=aa={cfg['watermark_opacity']}[mark]"
++                  f";[{base}][mark]overlay={mx}:{my}[marked]")
++        base = "marked"
++    chain += f";[{base}]ass={ass.name}[subbed]"
++    out_label = "subbed"
++    if title_png:
++        inputs += ["-i", str(title_png)]
++        idx = inputs.count("-i") - 1
++        chain += f";[subbed][{idx}:v]overlay=(W-w)/2:{title_box[0]}[titled]"
++        out_label = "titled"
+     if cfg["loudness"] is not None:
+         chain += f";[0:a]loudnorm=I={cfg['loudness']}:TP=-1.5:LRA=11,aresample=48000[aud]"
+     else:
+@@ -144,8 +190,15 @@
+         pass
+     part.unlink(missing_ok=True)
+     say(f"  saved {dest.name} ({look})", "good")
+-    return {"file": dest.name, "type": pick.get("type"), "title": title,
+-            "caption": pick.get("caption"), "hashtags": pick.get("hashtags", []),
+-            "score": pick.get("score"), "why": pick.get("why"), "look": look,
+-            "start": round(start, 1), "end": round(end, 1), "seconds": round(length, 1),
+-            "sync": round(conf, 2)}
++    record = {"file": dest.name, "type": pick.get("type"), "title": title,
++              "caption": pick.get("caption"), "hashtags": pick.get("hashtags", []),
++              "score": pick.get("score"), "why": pick.get("why"), "look": look,
++              "start": round(start, 1), "end": round(end, 1), "seconds": round(length, 1),
++              "sync": round(conf, 2)}
++    post = describe.generate(pick, words, ctx, cfg, clips_dir / f"{name}.desc.json")
++    record["description"], record["hashtags_all"] = post["description"], post["hashtags"]
++    text_file = ctx["outdir"] / f"{name}.txt"
++    record["post_text"] = text_file.name
++    record["post"] = describe.write(text_file, record, cfg, ctx.get("video"))
++    say(f"  wrote {text_file.name} (description + {len(post['hashtags'])} hashtags)", "good")
++    return record
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/reel.py stream-clips/scripts/sc/reel.py
+--- stream-clips/scripts/sc/reel.py	1970-01-01 05:30:00
++++ stream-clips/scripts/sc/reel.py	2026-11-24 00:29:19
+@@ -0,0 +1,539 @@
++"""The "reel" look: landscape gameplay kept whole (16:9, never cropped) in the middle of a
++branded 9:16 canvas.
++
++    top     the mascot, "LET'S GO!" and the facecam in a glowing frame
++    middle  the full gameplay frame, 1080 x 608, with torn-paper edges
++    bottom  brush strokes, claw marks and a faint oversized mascot; the subscribe banner
++            (play button, SUBSCRIBE, bell) only with "reel_subscribe": true (off by default)
++
++Every piece of art is its own PNG in ~/StreamClips/brand/reel/, generated from settings.json
++the first time it's needed:
++
++    texture.png     the dark grunge background
++    top.png         brush strokes, the mascot, LET'S GO!
++    bottom.png      brush strokes, claw marks, the faint mascot (+ the subscribe banner)
++    frame.png       the facecam border
++    edges.png       the torn-paper edges above and below the gameplay
++    glow.png        the pulsing glow around the facecam (animated)
++    bell.png        the bell (animated: it swings; only used with the subscribe banner)
++    frame_fill.png  shown in the facecam frame when the stream has no facecam
++
++A PNG edited by hand is kept as it is. Delete one to have it generated again."""
++
++import hashlib
++import json
++import math
++import urllib.request
++
++import numpy as np
++from PIL import Image, ImageDraw, ImageFilter, ImageFont
++
++from .common import DATA, even, font_file, read_json, say, write_json
++
++W, H = 1080, 1920
++GAME_Y, GAME_H = 520, 608            # the gameplay band (16:9 at the full width)
++FRAME = (684, 100, 372, 340)         # the facecam picture: x, y, w, h
++BORDER = 9                           # facecam border thickness
++GLOW_PAD = 56                        # room around the border for the glow
++BELL = (788, 1312, 220, 220)         # the bell layer: x, y, w, h (it swings inside)
++CAPTION_Y = 1222                     # the caption line, between the gameplay and the banner
++VERSION = 2                          # bump to regenerate generated layers after code changes
++FONT_URL = ("https://github.com/google/fonts/raw/main/apache/permanentmarker/"
++            "PermanentMarker-Regular.ttf")
++STATIC = ("texture", "bottom", "top", "frame", "edges")
++LAYERS = STATIC + ("glow", "bell", "frame_fill")
++WHITE = (255, 255, 255)
++
++
++# ---------------------------------------------------------------- helpers
++
++def _rgb(hex6):
++    h = str(hex6).lstrip("#")
++    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
++
++
++_font_path = None
++
++
++def _font(cfg, size):
++    """The graffiti font: reel_font, else Permanent Marker (downloaded once), else bold."""
++    global _font_path
++    if _font_path is None:
++        wanted = cfg.get("reel_font")
++        path = DATA / "brand" / "fonts" / "PermanentMarker-Regular.ttf"
++        if wanted:
++            path = wanted
++        elif not path.exists():
++            try:
++                path.parent.mkdir(parents=True, exist_ok=True)
++                urllib.request.urlretrieve(FONT_URL, path)
++            except Exception:  # noqa: BLE001 - no network: fall back to a system font
++                path = None
++        _font_path = str(path) if path else font_file("bold")
++    try:
++        return ImageFont.truetype(_font_path, size)
++    except OSError:
++        return ImageFont.truetype(font_file("bold"), size)
++
++
++def _noise(rng, w, h, cell):
++    small = rng.random((max(2, h // cell + 2), max(2, w // cell + 2)))
++    img = Image.fromarray((small * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC)
++    return np.asarray(img, np.float32) / 255
++
++
++def _smooth(rng, n, k=7):
++    a = rng.standard_normal(n + k)
++    return np.convolve(a, np.ones(k) / k, mode="valid")[:n] * math.sqrt(k) * 0.5
++
++
++def _path(points, n):
++    pts = np.array(points, np.float32)
++    t = np.linspace(0, 1, n)[:, None]
++    if len(pts) == 2:
++        return pts[0] * (1 - t) + pts[1] * t
++    if len(pts) == 3:
++        return (1 - t) ** 2 * pts[0] + 2 * (1 - t) * t * pts[1] + t ** 2 * pts[2]
++    if len(pts) == 4:
++        return ((1 - t) ** 3 * pts[0] + 3 * (1 - t) ** 2 * t * pts[1]
++                + 3 * (1 - t) * t ** 2 * pts[2] + t ** 3 * pts[3])
++    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
++    cum = np.concatenate([[0], np.cumsum(seg)])
++    s = np.linspace(0, cum[-1], n)
++    return np.stack([np.interp(s, cum, pts[:, 0]), np.interp(s, cum, pts[:, 1])], 1)
++
++
++def _paste(layer, piece, x, y):
++    """alpha_composite that tolerates pieces hanging off the canvas."""
++    x, y = int(round(x)), int(round(y))
++    l, t = max(0, -x), max(0, -y)
++    r, b = min(piece.width, layer.width - x), min(piece.height, layer.height - y)
++    if r > l and b > t:
++        layer.alpha_composite(piece.crop((l, t, r, b)), (x + l, y + t))
++
++
++def stroke(layer, points, width, c0, c1, rng, rough=0.28, head=0.12, tail=0.4, glow=0.5,
++           streaks=True):
++    """A painted brush stroke along a line or curve: rough edges, dry-brush gaps, a colour
++    fade from c0 to c1 and a soft glow."""
++    n = 90
++    p = _path(points, n)
++    d = np.gradient(p, axis=0)
++    d /= np.linalg.norm(d, axis=1, keepdims=True) + 1e-6
++    nrm = np.stack([-d[:, 1], d[:, 0]], 1)
++    t = np.linspace(0, 1, n)
++    prof = np.minimum(1, t / head) ** 0.6 * np.minimum(1, (1 - t) / tail) ** 0.8
++    hw = width / 2 * prof
++    up = p + nrm * (hw * (1 + rough * _smooth(rng, n)))[:, None]
++    dn = p - nrm * (hw * (1 + rough * _smooth(rng, n)))[:, None]
++    poly = [tuple(q) for q in up] + [tuple(q) for q in dn[::-1]]
++    mask = Image.new("L", layer.size, 0)
++    draw = ImageDraw.Draw(mask)
++    draw.polygon(poly, fill=255)
++    if streaks:
++        for _ in range(max(3, int(width / 3))):
++            off = rng.uniform(-0.85, 0.85)
++            t0 = rng.uniform(0.3, 0.95)
++            t1 = min(1.0, t0 + rng.uniform(0.08, 0.45))
++            i0, i1 = int(t0 * (n - 1)), int(t1 * (n - 1))
++            seg = [tuple(p[i] + nrm[i] * hw[i] * off) for i in range(i0, i1 + 1)]
++            if len(seg) > 1:
++                draw.line(seg, fill=0, width=int(rng.integers(1, 4)))
++    mask = mask.filter(ImageFilter.GaussianBlur(0.7))
++    box = mask.getbbox()
++    if not box:
++        return
++    pad = int(width * 1.4) + 4
++    x0, y0 = max(0, box[0] - pad), max(0, box[1] - pad)
++    x1, y1 = min(layer.width, box[2] + pad), min(layer.height, box[3] + pad)
++    sub = mask.crop((x0, y0, x1, y1))
++    a = np.asarray(sub, np.float32) / 255
++    if glow:
++        g = np.asarray(sub.filter(ImageFilter.GaussianBlur(width * 0.45 + 4)), np.float32) / 255
++        a = np.maximum(a, g * glow)
++    yy, xx = np.mgrid[y0:y1, x0:x1]
++    (sx, sy), (ex, ey) = p[0], p[-1]
++    tt = np.clip(((xx - sx) * (ex - sx) + (yy - sy) * (ey - sy))
++                 / ((ex - sx) ** 2 + (ey - sy) ** 2 + 1e-6), 0, 1)[..., None]
++    col = np.array(c0, np.float32) * (1 - tt) + np.array(c1, np.float32) * tt
++    rgba = np.dstack([col, a * 255]).clip(0, 255).astype(np.uint8)
++    layer.alpha_composite(Image.fromarray(rgba, "RGBA"), (x0, y0))
++
++
++def arc(center, r, a0, a1, n=40):
++    return [(center[0] + r * math.cos(math.radians(a)), center[1] + r * math.sin(math.radians(a)))
++            for a in np.linspace(a0, a1, n)]
++
++
++def claws(layer, start, direction, rng, c0, c1, n=3, gap=40, length=230, width=24):
++    """Claw marks: a few parallel, slightly curved scratches."""
++    dx, dy = direction
++    norm = math.hypot(dx, dy)
++    dx, dy = dx / norm, dy / norm
++    px, py = -dy, dx
++    for i in range(n):
++        ox, oy = start[0] + px * gap * i, start[1] + py * gap * i
++        bend = rng.uniform(10, 22)
++        pts = [(ox, oy), (ox + dx * length / 2 + px * bend, oy + dy * length / 2 + py * bend),
++               (ox + dx * length, oy + dy * length)]
++        stroke(layer, pts, width * rng.uniform(0.85, 1.1), c0, c1, rng, rough=0.2, head=0.08,
++               tail=0.6, glow=0.55, streaks=False)
++
++
++def text(layer, center, s, font, fill=WHITE, gradient=None, angle=0.0, shear=0.18,
++         outline=7, glow=None, shadow=True):
++    """Bold slanted text with a dark outline, an optional vertical gradient and glow."""
++    box = font.getbbox(s, stroke_width=outline)
++    m = 40
++    tw, th = box[2] - box[0] + 2 * m, box[3] - box[1] + 2 * m
++    at = (m - box[0], m - box[1])
++    fill_mask = Image.new("L", (tw, th), 0)
++    ImageDraw.Draw(fill_mask).text(at, s, font=font, fill=255)
++    out_mask = Image.new("L", (tw, th), 0)
++    ImageDraw.Draw(out_mask).text(at, s, font=font, fill=255, stroke_width=outline, stroke_fill=255)
++    piece = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
++    if glow:
++        g = out_mask.filter(ImageFilter.GaussianBlur(16))
++        piece.alpha_composite(Image.merge("RGBA", [*(Image.new("L", (tw, th), v) for v in glow),
++                                                   g.point(lambda v: int(v * 0.85))]))
++    if shadow:
++        s_mask = Image.new("L", (tw, th), 0)
++        s_mask.paste(out_mask, (6, 9))
++        s_mask = s_mask.filter(ImageFilter.GaussianBlur(5)).point(lambda v: int(v * 0.8))
++        piece.alpha_composite(Image.merge("RGBA", [*(Image.new("L", (tw, th), 0),) * 3, s_mask]))
++    piece.alpha_composite(Image.merge("RGBA", [*(Image.new("L", (tw, th), 12),) * 3, out_mask]))
++    if gradient:
++        ys = np.linspace(0, 1, th)[:, None, None]
++        col = (np.array(gradient[0]) * (1 - ys) + np.array(gradient[1]) * ys).repeat(tw, 1)
++    else:
++        col = np.broadcast_to(np.array(fill, np.float32), (th, tw, 3))
++    rgba = np.dstack([col, np.asarray(fill_mask)]).astype(np.uint8)
++    piece.alpha_composite(Image.fromarray(rgba, "RGBA"))
++    if shear:
++        extra = int(th * shear)
++        piece = piece.transform((tw + extra, th), Image.AFFINE, (1, shear, -extra, 0, 1, 0),
++                                resample=Image.BICUBIC)
++    if angle:
++        piece = piece.rotate(angle, resample=Image.BICUBIC, expand=True)
++    _paste(layer, piece, center[0] - piece.width / 2, center[1] - piece.height / 2)
++
++
++def _fit(img, width=None, height=None):
++    r = min((width or 10 ** 9) / img.width, (height or 10 ** 9) / img.height)
++    return img.resize((max(1, int(img.width * r)), max(1, int(img.height * r))), Image.LANCZOS)
++
++
++def _shadow(layer, box, radius, blur=14, offset=(10, 14), strength=0.75):
++    m = Image.new("L", layer.size, 0)
++    x0, y0, x1, y1 = box
++    ImageDraw.Draw(m).rounded_rectangle((x0 + offset[0], y0 + offset[1], x1 + offset[0],
++                                         y1 + offset[1]), radius=radius, fill=int(255 * strength))
++    m = m.filter(ImageFilter.GaussianBlur(blur))
++    layer.alpha_composite(Image.merge("RGBA", [*(Image.new("L", layer.size, 0),) * 3, m]))
++
++
++def _mascot(cfg):
++    from pathlib import Path
++    for key in ("reel_mascot", "watermark"):
++        if cfg.get(key):
++            p = Path(str(cfg[key])).expanduser()
++            if p.is_file():
++                return p
++    return None
++
++
++# ---------------------------------------------------------------- layers
++
++def _texture(cfg, mascot, rng):
++    v = 8 + 15 * _noise(rng, W, H, 240) + 9 * _noise(rng, W, H, 70) + 6 * rng.random((H, W))
++    v[rng.random((H, W)) > 0.9986] += 26
++    yy, xx = np.mgrid[0:H, 0:W]
++    v *= 1 - 0.5 * (0.55 * ((xx - W / 2) / (W / 2)) ** 2 + 0.25 * ((yy - H / 2) / (H / 2)) ** 2)
++    img = Image.fromarray(np.clip(np.stack([v * 1.03, v, v * 0.96], -1), 0, 255).astype(np.uint8))
++    layer = img.convert("RGBA")
++    draw = ImageDraw.Draw(layer)
++    for _ in range(140):                                    # faint scratches
++        x, y = rng.uniform(0, W), rng.uniform(0, H)
++        a = rng.uniform(0, math.pi)
++        ln = rng.uniform(20, 120)
++        g = int(rng.uniform(24, 40))
++        draw.line([(x, y), (x + math.cos(a) * ln, y + math.sin(a) * ln)], fill=(g, g, g, 255), width=1)
++    return layer
++
++
++def _top(cfg, mascot, rng):
++    o, y = _rgb(cfg["reel_orange"]), _rgb(cfg["reel_yellow"])
++    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
++    stroke(layer, [(-60, 210), (40, 70), (210, -30)], 78, o, y, rng, glow=0.5)
++    stroke(layer, arc((232, 282), 236, 118, 252), 30, y, o, rng, rough=0.3, glow=0.65, tail=0.3)
++    stroke(layer, arc((232, 282), 262, 128, 200), 12, o, y, rng, rough=0.25, glow=0.5, streaks=False)
++    stroke(layer, [(700, -40), (880, 10), (1130, 46)], 62, o, y, rng, glow=0.45)
++    stroke(layer, [(900, 64), (1010, 44), (1120, 18)], 22, y, o, rng, glow=0.4)
++    stroke(layer, [(-30, 505), (160, 470), (360, 492)], 26, o, y, rng, glow=0.4)
++    if mascot:
++        m = _fit(Image.open(mascot).convert("RGBA"), 432, 432)
++        _paste(layer, m, 16, 52)
++    x, yy, w, h = FRAME
++    _shadow(layer, (x - BORDER, yy - BORDER, x + w + BORDER, yy + h + BORDER), 20)
++    words = str(cfg["reel_top_text"]).split()
++    first, last = (" ".join(words[:-1]), words[-1]) if len(words) > 1 else (words[0], "")
++    text(layer, (528, 200), first, _font(cfg, 74), fill=WHITE, angle=9)
++    if last:
++        text(layer, (530, 318), last, _font(cfg, 128), gradient=(y, o), angle=9, glow=o)
++    stroke(layer, [(418, 444), (530, 428), (652, 396)], 20, o, y, rng, glow=0.5, tail=0.5)
++    return layer
++
++
++def _play_button(layer, box):
++    x, y, w, h = box
++    k = 4
++    big = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
++    d = ImageDraw.Draw(big)
++    d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=int(h * k * 0.3), fill=(255, 255, 255, 255))
++    mask = big.getchannel("A")
++    ys = np.linspace(0, 1, h * k)[:, None, None]
++    col = (np.array([255, 38, 38]) * (1 - ys) + np.array([196, 0, 0]) * ys).repeat(w * k, 1)
++    red = Image.fromarray(np.dstack([col, np.asarray(mask)]).astype(np.uint8), "RGBA")
++    ImageDraw.Draw(red).polygon([(w * k * 0.39, h * k * 0.26), (w * k * 0.39, h * k * 0.74),
++                                 (w * k * 0.70, h * k * 0.50)], fill=(255, 255, 255, 255))
++    _shadow(layer, (x, y, x + w, y + h), int(h * 0.3), blur=10, offset=(6, 10))
++    _paste(layer, red.resize((w, h), Image.LANCZOS), x, y)
++
++
++def _bottom(cfg, mascot, rng):
++    o, y = _rgb(cfg["reel_orange"]), _rgb(cfg["reel_yellow"])
++    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
++    if mascot:
++        m = _fit(Image.open(mascot).convert("RGBA"), 800, 800)
++        arr = np.asarray(m, np.float32)
++        arr[..., :3] *= 0.7
++        arr[..., 3] *= 0.3
++        _paste(layer, Image.fromarray(arr.clip(0, 255).astype(np.uint8), "RGBA"), 500, 1440)
++    stroke(layer, [(930, 1205), (1020, 1180), (1130, 1150)], 52, o, y, rng, glow=0.45)
++    stroke(layer, [(-70, 1915), (110, 1800), (330, 1712)], 92, o, y, rng, glow=0.5)
++    stroke(layer, [(-40, 1840), (80, 1785), (230, 1745)], 26, y, o, rng, glow=0.4)
++    stroke(layer, [(700, 1905), (900, 1840), (1130, 1800)], 54, o, y, rng, glow=0.4)
++    claws(layer, (52, 1590), (0.55, 1), rng, o, y)
++    if not cfg.get("reel_subscribe"):          # the subscribe banner is off unless asked for
++        return layer
++    _play_button(layer, (52, 1364, 168, 118))
++    text(layer, (514, 1414), str(cfg["reel_cta"]), _font(cfg, 96), fill=WHITE, angle=4)
++    stroke(layer, [(246, 1500), (500, 1494), (770, 1466)], 20, o, y, rng, glow=0.5, tail=0.5)
++    cx, cy = BELL[0] + BELL[2] / 2, BELL[1] + BELL[3] / 2
++    for a, ln in ((-62, 36), (-40, 44), (-18, 34)):            # the bell is ringing
++        r0 = 104
++        p0 = (cx + r0 * math.cos(math.radians(a)), cy + r0 * math.sin(math.radians(a)))
++        p1 = (cx + (r0 + ln) * math.cos(math.radians(a)), cy + (r0 + ln) * math.sin(math.radians(a)))
++        stroke(layer, [p0, p1], 11, o, y, rng, rough=0.1, head=0.2, tail=0.2, glow=0.5, streaks=False)
++    return layer
++
++
++def _frame(cfg, mascot, rng):
++    o, y = _rgb(cfg["reel_orange"]), _rgb(cfg["reel_yellow"])
++    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
++    x, yy, w, h = FRAME
++    b = BORDER
++    k = 3
++    big = Image.new("L", ((w + 2 * b) * k, (h + 2 * b) * k), 0)
++    d = ImageDraw.Draw(big)
++    d.rounded_rectangle((0, 0, big.width - 1, big.height - 1), radius=20 * k, fill=255)
++    d.rounded_rectangle((b * k, b * k, (w + b) * k - 1, (h + b) * k - 1), radius=8 * k, fill=0)
++    ring = big.resize((w + 2 * b, h + 2 * b), Image.LANCZOS)
++    gw, gh = ring.size
++    yy_, xx_ = np.mgrid[0:gh, 0:gw]
++    tt = ((xx_ / gw + yy_ / gh) / 2)[..., None]
++    col = np.array(y, np.float32) * (1 - tt) + np.array(o, np.float32) * tt
++    _paste(layer, Image.fromarray(np.dstack([col, np.asarray(ring)]).astype(np.uint8), "RGBA"),
++           x - b, yy - b)
++    cx, cy = x + w + b, yy - b                                  # accent marks, top-right corner
++    for ang, r0, ln in ((-80, 22, 40), (-52, 20, 50), (-24, 22, 40)):
++        p0 = (cx + r0 * math.cos(math.radians(ang)), cy + r0 * math.sin(math.radians(ang)))
++        p1 = (cx + (r0 + ln) * math.cos(math.radians(ang)), cy + (r0 + ln) * math.sin(math.radians(ang)))
++        stroke(layer, [p0, p1], 12, y, o, rng, rough=0.1, head=0.2, tail=0.2, glow=0.5, streaks=False)
++    return layer
++
++
++def _edges(cfg, mascot, rng):
++    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
++    for edge, sign in ((GAME_Y, -1), (GAME_Y + GAME_H, 1)):
++        xs, x = [], -10.0
++        while x < W + 20:
++            xs.append(x)
++            x += rng.uniform(5, 13)
++        depth = 9 + 9 * _smooth(rng, len(xs), 9) + rng.uniform(0, 6, len(xs))
++        depth = np.clip(depth, 4, 24)
++        jag = [(xv, edge + sign * dv) for xv, dv in zip(xs, depth)]
++        poly = [(-10, edge)] + jag + [(W + 20, edge)]
++        mask = Image.new("L", (W, H), 0)
++        ImageDraw.Draw(mask).polygon(poly, fill=255)
++        shadow = mask.filter(ImageFilter.GaussianBlur(6))
++        sh = Image.new("L", (W, H), 0)
++        sh.paste(shadow, (0, sign * 6))
++        layer.alpha_composite(Image.merge("RGBA", [*(Image.new("L", (W, H), 0),) * 3,
++                                                   sh.point(lambda v: int(v * 0.7))]))
++        paper = (228 + 18 * rng.random((H, W))).astype(np.uint8)
++        rgb = np.stack([paper, (paper * 0.985).astype(np.uint8), (paper * 0.96).astype(np.uint8)], -1)
++        layer.alpha_composite(Image.fromarray(np.dstack([rgb, np.asarray(mask)]), "RGBA"))
++    return layer
++
++
++def _glow(cfg, mascot, rng):
++    o = _rgb(cfg["reel_orange"])
++    x, yy, w, h = FRAME
++    b, p = BORDER, GLOW_PAD
++    size = (w + 2 * (b + p), h + 2 * (b + p))
++    ring = Image.new("L", size, 0)
++    d = ImageDraw.Draw(ring)
++    d.rounded_rectangle((p, p, size[0] - p - 1, size[1] - p - 1), radius=20, outline=255, width=b + 4)
++    g = ring.filter(ImageFilter.GaussianBlur(16))
++    hole = Image.new("L", size, 255)
++    ImageDraw.Draw(hole).rounded_rectangle((p + b, p + b, size[0] - p - b - 1, size[1] - p - b - 1),
++                                           radius=8, fill=0)
++    a = (np.asarray(g, np.float32) * 1.6).clip(0, 255) * (np.asarray(hole, np.float32) / 255)
++    return Image.fromarray(np.dstack([np.broadcast_to(np.array(o, np.uint8), (*a.shape, 3)),
++                                      a.astype(np.uint8)]), "RGBA")
++
++
++def _bell(cfg, mascot, rng):
++    bw, bh = BELL[2], BELL[3]
++    k = 4
++    big = Image.new("RGBA", (bw * k, bh * k), (0, 0, 0, 0))
++    d = ImageDraw.Draw(big)
++    s = bw * k / 220
++    white, shade = (248, 248, 248, 255), (214, 214, 214, 255)
++
++    def P(px, py):
++        return (px * s, py * s)
++
++    d.ellipse([*P(96, 34), *P(124, 62)], fill=white)                          # knob
++    body = [P(110, 50)] + [P(110 + 48 * math.sin(a), 50 + 40 * (1 - math.cos(a)))
++                           for a in np.linspace(0, math.pi / 2, 12)]
++    body += [P(162, 100), P(166, 136), P(186, 158), P(34, 158), P(54, 136), P(58, 100)]
++    body += [P(110 - 48 * math.sin(a), 50 + 40 * (1 - math.cos(a)))
++             for a in np.linspace(math.pi / 2, 0, 12)]
++    d.polygon(body, fill=white)
++    d.rounded_rectangle([*P(26, 150), *P(194, 170)], radius=10 * s, fill=white)   # rim
++    d.polygon([P(140, 70), P(158, 102), P(160, 140), P(176, 154), P(150, 154), P(146, 104)], fill=shade)
++    d.ellipse([*P(94, 166), *P(126, 196)], fill=white)                        # clapper
++    bell = big.resize((bw, bh), Image.LANCZOS)
++    shadow = Image.new("L", (bw, bh), 0)
++    shadow.paste(bell.getchannel("A"), (5, 8))
++    out = Image.merge("RGBA", [*(Image.new("L", (bw, bh), 0),) * 3,
++                               shadow.filter(ImageFilter.GaussianBlur(6)).point(lambda v: int(v * 0.7))])
++    out.alpha_composite(bell)
++    return out
++
++
++def _frame_fill(cfg, mascot, rng):
++    x, yy, w, h = FRAME
++    base = _texture(cfg, mascot, rng).crop((0, 0, w, h))
++    if mascot:
++        m = _fit(Image.open(mascot).convert("RGBA"), w - 40, h - 30)
++        _paste(base, m, (w - m.width) / 2, (h - m.height) / 2)
++    return base
++
++
++BUILDERS = {"texture": _texture, "top": _top, "bottom": _bottom, "frame": _frame, "edges": _edges,
++            "glow": _glow, "bell": _bell, "frame_fill": _frame_fill}
++
++
++# ---------------------------------------------------------------- assets + filtergraph
++
++def _sha(path):
++    return hashlib.sha1(path.read_bytes()).hexdigest()
++
++
++def assets(cfg):
++    """Make sure every layer PNG exists and is up to date, and compose the static ones into
++    composed_bg.png. Returns {name: path}."""
++    folder = DATA / "brand" / "reel"
++    folder.mkdir(parents=True, exist_ok=True)
++    manifest = read_json(folder / "layers.json", {}) or {}
++    mascot = _mascot(cfg)
++    keys = ("reel_top_text", "reel_cta", "reel_orange", "reel_yellow", "reel_font", "reel_subscribe")
++    stamp = {k: cfg.get(k) for k in keys}
++    stamp.update(version=VERSION, mascot=str(mascot), mtime=mascot.stat().st_mtime if mascot else 0)
++    want = hashlib.sha1(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:12]
++    paths = {}
++    for i, name in enumerate(LAYERS):
++        path = folder / f"{name}.png"
++        rec = manifest.get(name) or {}
++        edited = path.exists() and rec.get("sha") and _sha(path) != rec["sha"]
++        if path.exists() and (edited or rec.get("inputs") == want):
++            paths[name] = path
++            continue
++        say(f"  reel: drawing {name}.png", "step")
++        BUILDERS[name](cfg, mascot, np.random.default_rng(1000 + i)).save(path)
++        manifest[name] = {"inputs": want, "sha": _sha(path)}
++        paths[name] = path
++    bg = folder / "composed_bg.png"
++    mix = hashlib.sha1("".join(_sha(paths[n]) for n in STATIC).encode()).hexdigest()
++    if not bg.exists() or manifest.get("_bg") != mix:
++        base = Image.open(paths["texture"]).convert("RGBA")
++        for name in STATIC[1:]:
++            base.alpha_composite(Image.open(paths[name]).convert("RGBA"))
++        base.convert("RGB").save(bg)
++        manifest["_bg"] = mix
++    write_json(folder / "layers.json", manifest)
++    paths["bg"] = bg
++    return paths
++
++
++def caption_cfg(cfg):
++    """The settings with the caption line moved between the gameplay and the banner."""
++    return dict(cfg, cap_y=CAPTION_Y / cfg["height"])
++
++
++def _cover(cam, aim, sw, sh):
++    """A crop of the facecam box with the frame's aspect ratio, centred, inside the frame."""
++    x, y, w, h = cam
++    cw, ch = (h * aim, h) if w / h > aim else (w, w / aim)
++    cw, ch = min(cw, sw), min(ch, sh)
++    cx = min(max(x + (w - cw) / 2, 0), sw - cw)
++    cy = min(max(y + (h - ch) / 2, 0), sh - ch)
++    return cx, cy, cw, ch
++
++
++def graph(cfg, info, cam, length, fps, first, paths):
++    """Filtergraph from [0:v] (the gameplay) plus image inputs numbered from `first`, ending
++    in [framed]. Returns (filtergraph, extra ffmpeg input arguments)."""
++    loop = ["-loop", "1", "-framerate", f"{fps:.3f}", "-t", f"{length:.3f}"]
++    inputs, index = [], {}
++
++    def add(name):                      # an image input, looped for the clip's length
++        index[name] = first + len(index)
++        inputs.extend([*loop, "-i", str(paths[name])])
++
++    add("bg")
++    add("glow")
++    bell = bool(cfg.get("reel_subscribe"))
++    if bell:
++        add("bell")
++    sw, sh = info["width"], info["height"]
++    gh = min(even(W * sh / sw), GAME_H)
++    gy = GAME_Y + (GAME_H - gh) // 2
++    x, y, w, h = FRAME
++    g = []
++    if cam:
++        cx, cy, cw, ch = _cover(cam, w / h, sw, sh)
++        g += ["[0:v]split=2[gsrc][csrc]",
++              f"[csrc]crop={even(cw)}:{even(ch)}:{even(cx)}:{even(cy)},"
++              f"scale={w}:{h}:flags=lanczos,setsar=1[cam]",
++              f"[gsrc]scale={W}:{gh}:flags=lanczos,setsar=1[game]"]
++    else:
++        add("frame_fill")
++        g += [f"[{index['frame_fill']}:v]setsar=1[cam]",
++              f"[0:v]scale={W}:{gh}:flags=lanczos,setsar=1[game]"]
++    gx, gyy = x - BORDER - GLOW_PAD, y - BORDER - GLOW_PAD
++    g += [f"[{index['bg']}:v][game]overlay=0:{gy}:shortest=1[l1]",
++          f"[l1][cam]overlay={x}:{y}[l2]",
++          f"[{index['glow']}:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
++          f"a='alpha(X,Y)*(0.5+0.5*sin(2*PI*T/1.8))'[gl]"]
++    if bell:
++        g += [f"[l2][gl]overlay={gx}:{gyy}[l3]",
++              f"[{index['bell']}:v]format=rgba,"
++              f"rotate=a='0.22*sin(2*PI*t*3)*lt(mod(t,3),0.9)':c=none[bl]",
++              f"[l3][bl]overlay={BELL[0]}:{BELL[1]},format=yuv420p[framed]"]
++    else:
++        g += [f"[l2][gl]overlay={gx}:{gyy},format=yuv420p[framed]"]
++    return ";".join(g), inputs
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/sc/settings.py stream-clips/scripts/sc/settings.py
+--- stream-clips/scripts/sc/settings.py	2026-11-17 11:41:40
++++ stream-clips/scripts/sc/settings.py	2026-11-24 00:40:02
+@@ -1,5 +1,7 @@
+ """Every knob in one place. Override any of them in ~/StreamClips/settings.json."""
+ 
++from pathlib import Path
++
+ from .common import DATA, Problem, read_json
+ 
+ DEFAULTS = {
+@@ -31,7 +33,7 @@
+     # framing
+     "width": 1080,
+     "height": 1920,
+-    "layout": "auto",                # auto | stack | crop | blur
++    "layout": "auto",                # auto | stack | crop | blur | reel
+     "cam_share": 0.40,               # stack layout: share of the height given to the facecam
+     "big_face": 0.13,                # face wider than this share of the frame = talking head
+ 
+@@ -52,7 +54,34 @@
+     "cap_upper": True,
+     "cap_y": 0.70,                   # vertical position of the caption line (0 top, 1 bottom)
+ 
++    # watermark (a logo burned into every clip, under the title and captions)
++    "watermark": None,               # path to a PNG with a transparent background; None = off
++    "watermark_opacity": 0.30,       # 0 invisible, 1 solid
++    "watermark_width": 0.36,         # share of the frame width (shrunk to fit the free space)
++    "watermark_y": None,             # centre as a share of the height; None = the middle of
++                                     # the free space between the title bar and the captions
++
++    # the "reel" layout (layout: "reel"): the whole 16:9 gameplay in the middle of a branded
++    # frame. Its art is in ~/StreamClips/brand/reel/ (see sc/reel.py)
++    "reel_top_text": "LET'S GO!",    # the last word is orange, the rest white
++    "reel_subscribe": False,         # the subscribe banner (play button, SUBSCRIBE, bell)
++    "reel_cta": "SUBSCRIBE",         # the banner's text, when it's on
++    "reel_orange": "FF7900",
++    "reel_yellow": "FFB000",
++    "reel_mascot": None,             # a PNG with transparency; None = the watermark logo
++    "reel_font": None,               # a .ttf; None = Permanent Marker (downloaded once)
++
++    # post text: one <clip>.txt per clip, next to the video
++    "hashtags": 30,                  # how many, most important first. Platform caps: Instagram 5
++                                     # (more blocks the post), YouTube 60 (more and all are
++                                     # ignored), TikTok none (captions up to 4,000 characters)
++    "credit_creator": True,          # a credit line with the creator's social media @handles
++    "creator_socials": {},           # add or correct handles per creator, e.g.
++                                     # {"ishowspeed": {"TikTok": "@name"}}; "" removes one
++
+     # output
++    "output_dir": None,              # where finished clips go, in date folders, with a
++                                     # CLIPS.md index; None = ~/StreamClips
+     "video_height": 1080,
+     "crf": 21,
+     "x264_preset": "fast",
+@@ -75,4 +104,11 @@
+     for key, value in (cli or {}).items():
+         if value is not None:
+             cfg[key] = value
++    if cfg["watermark"]:
++        mark = Path(str(cfg["watermark"])).expanduser()
++        if not mark.is_file():
++            raise Problem(f"watermark not found: {mark}. Fix the path in {user}, or set "
++                          f"\"watermark\": null to make clips without it.")
++        cfg["watermark"] = str(mark)
++    cfg["output_dir"] = str(Path(str(cfg["output_dir"])).expanduser()) if cfg["output_dir"] else str(DATA)
+     return cfg
+diff -ruN --exclude __pycache__ --exclude .DS_Store stream-clips/scripts/setup_env.py stream-clips/scripts/setup_env.py
+--- stream-clips/scripts/setup_env.py	2026-11-17 11:40:48
++++ stream-clips/scripts/setup_env.py	2026-11-23 20:05:46
+@@ -42,6 +42,17 @@
+     return mac if IS_MAC else win if IS_WIN else linux
+ 
+ 
++def has_caption_filter():
++    """Captions are burned in with ffmpeg's `ass` filter, which only exists in builds with
++    libass. Homebrew's plain `ffmpeg` formula doesn't have it; `ffmpeg-full` does."""
++    try:
++        out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True,
++                             text=True, errors="replace", timeout=30).stdout
++    except (OSError, subprocess.TimeoutExpired):
++        return False
++    return any(line.split()[1:2] == ["ass"] for line in out.splitlines())
++
++
+ def check_tools():
+     missing = False
+     print("Checking tools")
+@@ -56,8 +67,18 @@
+             good(tool)
+         else:
+             bad(f"{tool} not found",
+-                hint("brew install ffmpeg", "winget install Gyan.FFmpeg  (then open a new terminal)",
++                hint("brew install ffmpeg-full && brew link --force ffmpeg-full",
++                     "winget install Gyan.FFmpeg  (then open a new terminal)",
+                      "sudo apt install ffmpeg"))
++            missing = True
++    if shutil.which("ffmpeg"):
++        if has_caption_filter():
++            good("ffmpeg can draw captions (libass)")
++        else:
++            bad("this ffmpeg can't draw captions (it was built without libass)",
++                hint("brew install ffmpeg-full; brew unlink ffmpeg; brew link --force ffmpeg-full",
++                     "winget install Gyan.FFmpeg  (the full build; then open a new terminal)",
++                     "sudo apt install ffmpeg  (the distro build includes libass)"))
+             missing = True
+     if shutil.which("deno") or shutil.which("node") or shutil.which("bun"):
+         good("JavaScript runtime (YouTube downloads need one)")
