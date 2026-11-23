@@ -1,0 +1,6 @@
+# Rendered clip videos (captions, thumbnails, POSTING.md and clips.json stay tracked)
+Clips/**/*.mp4
+Clips/**/*.mov
+Clips/**/*.mkv
+Clips/**/*.webm
+Clips/**/*.m4v
