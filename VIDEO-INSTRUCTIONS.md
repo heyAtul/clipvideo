@@ -99,6 +99,9 @@ When posting, keep as many as the platform allows (checked 2026-11-23):
 - `Clips/CLIPS.md` lists every clip by date, newest first, with links to each video and its
   description. It's rebuilt after every run.
 - The skill, the logo, the tools and the layout brief are in this folder too.
+- **2026-11-24:** this folder was moved from `~/Desktop/Stream Clips Kit` to
+  `~/Desktop/⾴/ATUL/clipvideo`. `"output_dir"` in settings.json and the path to this file in
+  the installed skill's `SKILL.md` were updated to match, so clips still land here.
 
 ### 5. The landscape gameplay layout (reel), from your design brief
 
@@ -254,6 +257,32 @@ Notes:
 - **Best for clipping:** #1, #5 and #7 are full streams with a facecam.
 - **Not streams:** #4 and #8 are short edited videos; #8 is commentary rather than gameplay.
 - **Picked:** #1 ("yes clip IShowSpeed's stream", 2026-11-23); see the next section.
+
+### 2026-11-24: today's biggest GTA 6 streams
+
+> "make more gta6 clips"
+
+The same search as on 2026-11-23, one day later:
+
+| # | Creator | Views | Length | Title | Link |
+|---|---|---|---|---|---|
+| 1 | IShowSpeed | 10,147,097 | 5h45m | 🔴EXPLORING VICE CITY - GTA 6 STREAM (EASTER EGGS) | [watch](https://www.youtube.com/watch?v=izXcd-bU72k) |
+| 2 | Techno Gamerz | 6,519,908 | 1h29m | TREASURE HUNTING IN THE OCEAN GONE WRONG! \| GTA 6 GAMEPLAY #4 | [watch](https://www.youtube.com/watch?v=Dz0naoD1QWo) |
+| 3 | Rubius Z | 2,738,072 | 0h29m | I Got 6 Stars in GTA 6 ⭐ | [watch](https://www.youtube.com/watch?v=NrNdw_Y6_bI) |
+| 4 | Gameplayrj | 2,324,571 | 10h11m | GTA 6 A 60 FPS É LINDO DEMAIS , VAMOS JOGAR O DIA TODO | [watch](https://www.youtube.com/watch?v=L5vMU26MPSQ) |
+| 5 | Live Insaan | 1,954,098 | 6h58m | GTA 6 🛑 We Back in Vice City Live (Day 2) | [watch](https://www.youtube.com/watch?v=VxChUHDOOqg) |
+| 6 | Asmongold TV | 1,339,848 | 0h58m | GTA 6 just exposed every game critic.. | [watch](https://www.youtube.com/watch?v=2pKaKXIyDW0) |
+| 7 | QuadMannGaming | 1,256,938 | 4h37m | NO HANDS \| GTA 6 LIVE 🔥 | [watch](https://www.youtube.com/watch?v=uPFxbJXmJuM) |
+| 8 | CarryisLive | 1,095,689 | 3h38m | FINALLY GETTING THE GOLDEN LAMBO IN GTA VI \| NO PROMOTIONS | [watch](https://www.youtube.com/watch?v=ipZCIW7DNJo) |
+
+Notes:
+- **Not streams:** #2, #3 and #6 are edited videos; #6 is commentary rather than gameplay.
+- **Not in English:** #4 (Portuguese), #5 and #8 (Hindi).
+- **Picked by Claude, since no stream was named:** more moments from #1, which was already
+  listened to, and #7, the biggest English stream with a facecam that hadn't been clipped.
+- Other English facecam streams from the same search, not clipped: DashieGames (8h04m, 350,481
+  views, [watch](https://www.youtube.com/watch?v=YQ-jPo61nMI)) and Kreek (3h27m, 274,535 views,
+  "GTA 6 FINAL MISSION (BEST ENDING)", [watch](https://www.youtube.com/watch?v=8x0Mv137tMA)).
 
 ## Clips made so far
 
